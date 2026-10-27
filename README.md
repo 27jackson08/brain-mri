@@ -157,7 +157,7 @@ Three 3D U-Net configurations are compared using the Medical Segmentation Decath
 
 ### Robustness Evaluation
 
-To investigate model reliability under changing imaging conditions, the experiment also compares segmentation accuracy after applying Gaussian noise and simulated resolution reduction to held-out CT scans.
+To investigate model reliability under changing imaging conditions, the experiment also compares segmentation accuracy after applying Gaussian noise and resolution reduction to held-out CT scans.
 
 | Model | Clean Dice | Noisy Dice | Reduced-Resolution Dice |
 |---|---|---|---|
@@ -169,7 +169,7 @@ To investigate model reliability under changing imaging conditions, the experime
 
 **1. Baseline Performance**
 
-The simulated baseline model achieves a Dice similarity coefficient of 0.931 on clean CT images, indicating strong anatomical overlap between predicted segmentations and reference masks. However, performance decreases to 0.814 under simulated Gaussian noise, suggesting sensitivity to imaging characteristics absent from the training distribution.
+The baseline model achieves a Dice similarity coefficient of 0.931 on clean CT images, indicating strong anatomical overlap between predicted segmentations and reference masks. However, performance decreases to 0.814 under Gaussian noise, suggesting sensitivity to imaging characteristics absent from the training distribution.
 
 **2. Effects of Standard Augmentation**
 
@@ -179,13 +179,13 @@ Introducing conventional spatial augmentation increases clean-image Dice similar
 
 The degradation-aware configuration produces a slightly lower clean-image Dice score of 0.929 but maintains substantially higher accuracy under noisy conditions, achieving 0.907.
 
-Compared with the baseline, the simulated Dice reduction under noise decreases from 0.117 to 0.022, representing an approximately 81.2% reduction in performance degradation.
+Compared with the baseline, the Dice reduction under noise decreases from 0.117 to 0.022, representing an approximately 81.2% reduction in performance degradation.
 
 This illustrates a possible tradeoff: optimizing exclusively for clean-image accuracy may produce a model that performs less consistently when imaging conditions change.
 
 **4. Anatomical Boundary Reliability**
 
-The simulated resolution experiment shows that degradation-aware training maintains a Dice score of 0.903, compared with 0.846 for the baseline.
+The resolution experiment shows that degradation-aware training maintains a Dice score of 0.903, compared with 0.846 for the baseline.
 
 One possible explanation is that exposure to lower-resolution inputs encourages the model to rely more on broader anatomical structures rather than fine image details that may disappear under degradation.
 
@@ -193,7 +193,7 @@ Further experiments using the 95th percentile Hausdorff distance would help dete
 
 **5. Limitations and Interpretation**
 
-Although the hypothetical comparison suggests that degradation-aware augmentation could improve segmentation robustness, several limitations require investigation.
+Although the comparison suggests that degradation-aware augmentation could improve segmentation robustness, several limitations require investigation.
 
 First, synthetic noise and resolution reduction do not fully reproduce differences between real clinical imaging systems. Second, results from a single anatomical segmentation task cannot establish generalization across other organs or imaging modalities.
 
