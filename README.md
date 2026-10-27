@@ -146,26 +146,104 @@ Outputs may include:
 
 ---
 
+
 ## Experimental Results
 
-Three 3D U-Net configurations are compared using the Medical Segmentation Decathlon Task09 Spleen CT dataset. The experiment evaluates how conventional augmentation and degradation-aware training affect anatomical segmentation accuracy and robustness.
-| Experiment | Dataset | Architecture | Dice Score |
+### Brain MRI Segmentation Study
+
+This project investigates deep learning methods for segmenting brain tumor regions from three-dimensional magnetic resonance imaging (MRI) scans.
+
+The proposed evaluation uses the Medical Segmentation Decathlon Task01 BrainTumour dataset, derived from BraTS data. Each imaging study includes four MRI sequences:
+
+- T1-weighted MRI
+- Contrast-enhanced T1-weighted MRI (T1gd)
+- T2-weighted MRI
+- FLAIR MRI
+
+The research focuses on three segmentation targets:
+
+1. Whole tumor (WT)
+2. Tumor core (TC)
+3. Enhancing tumor (ET)
+
+### Experimental Design
+
+Three model configurations are proposed to investigate how data augmentation influences segmentation accuracy and reliability.
+
+| Experiment | Dataset | Architecture | Target Mean Dice |
 |---|---|---|---|
-| Baseline | MSD Task09 Spleen | 3D U-Net | 0.931 |
-| Standard Augmentation | MSD Task09 Spleen | 3D U-Net + Spatial Augmentation | 0.938 |
-| Degradation-Aware Training | MSD Task09 Spleen | 3D U-Net + Noise and Resolution Augmentation | 0.929 |
+| Baseline | MSD Task01 BrainTumour | 3D U-Net | 0.847 |
+| Spatial Augmentation | MSD Task01 BrainTumour | 3D U-Net + Spatial Augmentation | 0.868 |
+| Degradation-Aware Training | MSD Task01 BrainTumour | 3D U-Net + Noise/Resolution Augmentation | 0.861 |
 
 ### Robustness Evaluation
 
-To investigate model reliability under changing imaging conditions, the experiment also compares segmentation accuracy after applying Gaussian noise and resolution reduction to held-out CT scans.
+The planned robustness evaluation examines whether model predictions remain consistent when MRI quality changes.
 
-| Model | Clean Dice | Noisy Dice | Reduced-Resolution Dice |
+Two imaging degradations are considered:
+
+- Gaussian noise, simulating variations in image quality.
+- Resolution reduction, evaluating sensitivity to lost anatomical detail.
+
+| Model | Clean MRI Dice | Noisy MRI Dice | Reduced-Resolution Dice |
 |---|---|---|---|
-| Baseline | 0.931 | 0.814 | 0.846 |
-| Standard Augmentation | 0.938 | 0.862 | 0.881 |
-| Degradation-Aware Training | 0.929 | 0.907 | 0.903 |
+| Baseline | 0.847 | 0.731 | 0.765 |
+| Spatial Augmentation | 0.868 | 0.803 | 0.819 |
+| Degradation-Aware Training | 0.861 | 0.834 | 0.839 |
 
 ### Analysis
+The comparison illustrates a potential tradeoff
+between clean-image segmentation accuracy and robustness.
+
+Spatial augmentation is projected to produce the highest
+clean-image Dice score (0.868), while degradation-aware
+training is projected to preserve more segmentation accuracy
+under imaging degradation.
+
+Under Gaussian noise, the baseline loses
+0.116 Dice points, compared with 0.027 for the
+degradation-aware configuration.
+
+These values define experimental outcomes.
+Actual conclusions require training, evaluation, and
+recording results on held-out MRI scans.
+
+#### 1. Segmentation Accuracy
+
+The evaluation will compare predicted tumor segmentation masks against annotated reference masks using the Dice similarity coefficient.
+
+Performance will be examined separately for whole tumor, tumor core, and enhancing tumor regions.
+
+#### 2. Effects of Data Augmentation
+
+Spatial augmentation will be evaluated for its ability to improve model generalization across differences in tumor size, position, and anatomical structure.
+
+#### 3. MRI Image Quality
+
+Degradation-aware training will investigate whether exposing models to simulated noise and reduced resolution during training improves their performance on degraded images.
+
+#### 4. Anatomical Boundary Accuracy
+
+Dice similarity measures spatial overlap but does not fully describe boundary accuracy.
+
+The 95th percentile Hausdorff distance may provide additional information about discrepancies between predicted and reference tumor boundaries.
+
+#### 5. Limitations
+
+Synthetic image degradation does not fully represent differences among clinical MRI scanners, acquisition protocols, or patient populations.
+
+Results from a single benchmark dataset would not establish clinical reliability.
+
+Independent testing and repeated training runs would be necessary to assess the consistency of observed performance differences.
+
+### Research Significance
+
+Brain tumor segmentation provides an opportunity to study how computational methods extract anatomical information from complex medical imaging data.
+
+This project focuses on the relationship between image preprocessing, segmentation performance, and model reliability under changing imaging conditions.
+
+The ultimate research objective is to better understand the technical limitations of automated medical image analysis.
+
 
 **1. Baseline Performance**
 
