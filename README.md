@@ -337,8 +337,5 @@ This project draws on open-source research in deep learning and computational me
 - [MONAI Tutorials](https://github.com/Project-MONAI/tutorials)
 - [PyTorch](https://github.com/pytorch/pytorch)
 
-If code, model architectures, pretrained weights, or preprocessing implementations were adapted from another repository, their original authors and licenses should be acknowledged.
 
-## License
 
-[Specify the license for your original code and confirm compatibility with reused components.]
