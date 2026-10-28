@@ -29,8 +29,11 @@ REGION_COLORS = {"edema": "#6250d6", "core": "#eda100", "enhancing": "#e34948"}
 HEADLINE_CONDITIONS = (("clean", "Clean"), ("noise_0.2", "Noise σ=0.2"), ("lowres_0.5", "2 mm resolution"))
 CONDITION_LABELS = {
     "clean": "Clean (1 mm)", "noise_0.1": "Gaussian noise σ=0.1", "noise_0.2": "Gaussian noise σ=0.2",
-    "noise_0.4": "Gaussian noise σ=0.4 (beyond training range)", "lowres_0.5": "Reduced resolution ×0.5 (≈2 mm)",
+    "noise_0.4": "Gaussian noise σ=0.4 (beyond training range)",
+    "noise_0.8": "Gaussian noise σ=0.8 (beyond training range)",
+    "lowres_0.5": "Reduced resolution ×0.5 (≈2 mm)",
     "lowres_0.333": "Reduced resolution ×0.33 (≈3 mm, beyond training range)",
+    "lowres_0.25": "Reduced resolution ×0.25 (≈4 mm, beyond training range)",
 }
 BOOTSTRAP_SAMPLES = 10_000
 TEXT_COLOR, MUTED, GRID = "#0b0b0b", "#52514e", "#e6e5e1"
@@ -192,31 +195,38 @@ def plot_training_curves(histories: dict[str, dict], out: Path) -> None:
     plt.close(fig)
 
 
-def plot_robustness(df: pd.DataFrame, out: Path) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(10, 3.8), dpi=150)
+def plot_robustness(df: pd.DataFrame, out: Path, rng: np.random.Generator) -> None:
+    """Paired change in mean Dice relative to the clean input, per model and degradation level."""
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.2), dpi=150, sharey=True)
+    # (axis, condition -> x position, x label, title, x-range beyond the degradation-aware training range)
     panels = (
-        (axes[0], [("clean", 0.0), ("noise_0.1", 0.1), ("noise_0.2", 0.2), ("noise_0.4", 0.4)],
-         "Gaussian noise σ (normalized units)", "Dice under additive noise"),
-        (axes[1], [("clean", 1.0), ("lowres_0.5", 2.0), ("lowres_0.333", 3.0)],
-         "Simulated voxel size (mm)", "Dice under reduced resolution"),
+        (axes[0], [("clean", 0.0), ("noise_0.1", 0.1), ("noise_0.2", 0.2), ("noise_0.4", 0.4), ("noise_0.8", 0.8)],
+         "Gaussian noise σ (normalized units)", "Robustness to additive noise", (0.3, 0.9)),
+        (axes[1], [("clean", 1.0), ("lowres_0.5", 2.0), ("lowres_0.333", 3.0), ("lowres_0.25", 4.0)],
+         "Simulated voxel size (mm)", "Robustness to reduced resolution", (2.0, 4.1)),
     )
-    for ax, points, xlabel, title in panels:
+    for ax, points, xlabel, title, beyond_training in panels:
+        points = [(cond, x) for cond, x in points if not df[df.condition == cond].empty]
+        ax.axvspan(*beyond_training, color="#f1f0ec", zorder=0, label="beyond training range")
+        ax.axhline(0, color=GRID, linewidth=1)
         for config in CONFIG_ORDER:
-            xs, ys, errs = [], [], []
+            clean = case_matrix(df, "clean", "dice_mean")[config].to_numpy()
+            xs, ys, lo, hi = [], [], [], []
             for cond, x in points:
-                vals = df[(df.config == config) & (df.condition == cond)].dice_mean
-                if vals.empty:
-                    continue
+                stats = paired_bootstrap(case_matrix(df, cond, "dice_mean")[config].to_numpy(), clean, rng)
                 xs.append(x)
-                ys.append(vals.mean())
-                errs.append(1.96 * vals.std(ddof=1) / np.sqrt(len(vals)))
-            ax.errorbar(xs, ys, yerr=errs, color=MODEL_COLORS[config], linewidth=2, marker=MODEL_MARKERS[config],
-                        markersize=6, capsize=3, label=label_of(config))
-        ax.set(title=title, xlabel=xlabel, ylabel="Mean Dice (test set)")
+                ys.append(stats["mean"])
+                lo.append(stats["mean"] - stats["ci_low"])
+                hi.append(stats["ci_high"] - stats["mean"])
+            ax.errorbar(xs, ys, yerr=[lo, hi], color=MODEL_COLORS[config], linewidth=2,
+                        marker=MODEL_MARKERS[config], markersize=6, capsize=3, label=label_of(config))
+        ax.set(title=title, xlabel=xlabel)
         ax.set_xticks([x for _, x in points])
         style_axis(ax)
-    axes[0].legend(frameon=False, fontsize=9, loc="lower left")
-    fig.tight_layout()
+    axes[0].set_ylabel("Change in mean Dice vs clean (paired, 95% CI)")
+    handles, labels = axes[1].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=4, frameon=False, fontsize=9)
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
     fig.savefig(out, facecolor="white")
     plt.close(fig)
 
@@ -292,7 +302,7 @@ def main() -> None:
 
     if histories:
         plot_training_curves(histories, figures / "training_curves.png")
-    plot_robustness(df, figures / "robustness.png")
+    plot_robustness(df, figures / "robustness.png", rng)
     if summary.get("vis_case_id"):
         plot_qualitative(df, summary["vis_case_id"], args.seed, summary.get("split", "test"),
                          figures / "qualitative.png")

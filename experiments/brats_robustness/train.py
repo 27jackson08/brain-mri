@@ -30,8 +30,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--val-interval", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=2)
-    parser.add_argument("--samples-per-case", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--samples-per-case", type=int, default=4)
+    parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--max-train-cases", type=int, default=None, help="debug: limit training cases")
@@ -113,7 +113,9 @@ def main() -> None:
 
     train_loader, val_loader = make_loaders(args)
     model = build_model().to(device)
-    loss_fn = DiceCELoss(sigmoid=True, squared_pred=True, smooth_nr=0, smooth_dr=1e-5)
+    # batch=True computes Dice over the whole batch, so patches where a region is
+    # absent still contribute gradient instead of a constant loss of one.
+    loss_fn = DiceCELoss(sigmoid=True, squared_pred=True, smooth_nr=0, smooth_dr=1e-5, batch=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 

@@ -29,8 +29,10 @@ DEFAULT_CONDITIONS: tuple[tuple[str, float], ...] = (
     ("noise", 0.1),
     ("noise", 0.2),
     ("noise", 0.4),
+    ("noise", 0.8),
     ("lowres", 0.5),
     ("lowres", 0.333),
+    ("lowres", 0.25),
 )
 NOISE_SEED_BASE = 20261028
 CSV_FIELDS = ["run", "config", "seed", "case_id", "condition", "level", *[f"dice_{r}" for r in REGION_NAMES],
@@ -46,7 +48,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-hd95", action="store_true")
     parser.add_argument("--vis-case-index", type=int, default=0, help="test case whose predictions are saved for figures")
     parser.add_argument("--out", default=str(RESULTS_DIR / "per_case_results.csv"))
+    parser.add_argument("--conditions", nargs="+", default=None, metavar="KIND:LEVEL",
+                        help="subset of conditions, e.g. noise:0.8 lowres:0.25 (default: all built-in conditions)")
     return parser.parse_args()
+
+
+def parse_conditions(specs: list[str] | None) -> tuple[tuple[str, float], ...]:
+    if not specs:
+        return DEFAULT_CONDITIONS
+    out = []
+    for spec in specs:
+        kind, _, level = spec.partition(":")
+        if kind not in {"clean", "noise", "lowres"}:
+            raise SystemExit(f"unknown condition kind in {spec!r}")
+        out.append((kind, float(level) if level else 1.0))
+    return tuple(out)
 
 
 def parse_condition(kind: str, level: float) -> str:
@@ -101,6 +117,7 @@ def aggregate(rows: list[dict]) -> dict:
 def main() -> None:
     args = parse_args()
     device = get_device()
+    conditions = parse_conditions(args.conditions)
     split = load_json(SPLIT_FILE)
     case_ids = split[args.split][: args.max_cases]
     if not 0 <= args.vis_case_index < len(case_ids):
@@ -111,7 +128,7 @@ def main() -> None:
     tmp_path = out_path.with_suffix(".partial.csv")
     vis_dir = RUNS_DIR / "vis"
     vis_dir.mkdir(parents=True, exist_ok=True)
-    print(f"evaluating {len(args.runs)} runs x {len(case_ids)} {args.split} cases x {len(DEFAULT_CONDITIONS)} "
+    print(f"evaluating {len(args.runs)} runs x {len(case_ids)} {args.split} cases x {len(conditions)} "
           f"conditions on {device}", flush=True)
 
     all_rows: list[dict] = []
@@ -127,7 +144,7 @@ def main() -> None:
             start = time.time()
             for idx, case_id in enumerate(case_ids):
                 data = loader({"case_id": case_id})
-                rows, preds = evaluate_case(model, data["image"], data["label"], device, DEFAULT_CONDITIONS,
+                rows, preds = evaluate_case(model, data["image"], data["label"], device, conditions,
                                             case_seed=NOISE_SEED_BASE + idx, with_hd95=not args.no_hd95,
                                             keep_predictions=idx == args.vis_case_index)
                 for row in rows:
@@ -137,16 +154,16 @@ def main() -> None:
                 f.flush()
                 for cond, arr in preds.items():
                     np.save(vis_dir / f"{run}__{case_id}__{cond}.npy", arr)
-                clean = next(r for r in rows if r["condition"] == "clean")
-                print(f"  [{run}] {idx + 1}/{len(case_ids)} {case_id} clean Dice mean={clean['dice_mean']:.3f} "
-                      f"({time.time() - start:.0f}s)", flush=True)
+                first = rows[0]
+                print(f"  [{run}] {idx + 1}/{len(case_ids)} {case_id} {first['condition']} Dice mean="
+                      f"{first['dice_mean']:.3f} ({time.time() - start:.0f}s)", flush=True)
             del model
             if device.type == "mps":
                 torch.mps.empty_cache()
 
     tmp_path.replace(out_path)
     summary = aggregate(all_rows)
-    save_json({"split": args.split, "n_cases": len(case_ids), "conditions": [list(c) for c in DEFAULT_CONDITIONS],
+    save_json({"split": args.split, "n_cases": len(case_ids), "conditions": [list(c) for c in conditions],
                "vis_case_id": case_ids[args.vis_case_index] if case_ids else None, "runs": summary},
               out_path.with_name("summary.json"))
     for run, conds in summary.items():

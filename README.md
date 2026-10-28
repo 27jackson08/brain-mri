@@ -1,4 +1,3 @@
-
 # MedImageLab
 ### Deep Learning for Medical Image Analysis
 
@@ -6,7 +5,7 @@ MedImageLab is a Python-based biomedical engineering project focused on applying
 
 The project explores how neural networks can analyze complex medical imaging data, identify anatomical structures, and produce quantitative predictions from MRI and other medical scans.
 
-Inspired by the open-source MONAI framework, MedImageLab focuses on reproducible model development, imaging preprocessing, experimental evaluation, and visualization of medical image predictions.
+Built on the open-source MONAI framework, MedImageLab focuses on reproducible model development, imaging preprocessing, experimental evaluation, and visualization of medical image predictions.
 
 > **Status:** Research and development  
 > **Application:** Biomedical Engineering / Medical Imaging  
@@ -34,9 +33,9 @@ The primary objectives are to:
 
 - Investigate deep learning methods for biomedical image analysis.
 - Evaluate 2D and 3D medical image segmentation approaches.
-- Examine how preprocessing affects model performance.
+- Examine how preprocessing and augmentation affect model performance.
 - Compare model predictions against annotated reference images.
-- Study the effects of image resolution and anatomical variation.
+- Study the effects of image resolution, noise, and anatomical variation.
 - Identify prediction failures and potential sources of error.
 - Develop reproducible experimental workflows.
 
@@ -64,7 +63,7 @@ The research workflow is organized into five stages.
                     |
                     v
           QUANTITATIVE ANALYSIS
-       Dice / IoU / Error Analysis
+       Dice / HD95 / Error Analysis
                     |
                     v
           RESULTS & VISUALIZATION
@@ -76,267 +75,225 @@ The research workflow is organized into five stages.
 
 Medical imaging datasets require consistent preprocessing before model training.
 
-The preprocessing workflow may include:
+The preprocessing workflow used in the brain MRI study:
 
-- Intensity normalization
-- Spatial resizing and resampling
-- Foreground extraction
-- Random spatial augmentation
-- Image orientation standardization
-- Training, validation, and testing splits
+- Reorientation of every volume to RAS
+- Cropping to the brain bounding box (non-zero voxels)
+- Per-modality z-score intensity normalization over brain voxels
+- Conversion of the integer label map to the nested BraTS regions
+- Foreground-biased random patch extraction during training
+- Fixed training, validation, and held-out test splits
 
-These operations are intended to reduce unwanted variation while preserving relevant anatomical information.
+These operations reduce unwanted variation while preserving relevant anatomical information.
 
 ### 2. Deep Learning Models
 
-The project investigates neural network architectures designed for biomedical imaging.
-
 | Component | Implementation |
 |---|---|
-| Primary architecture | [Specify model] |
-| Imaging modality | [MRI / CT / Other] |
-| Target anatomy | [Specify anatomical structures] |
-| Training framework | [PyTorch / MONAI / Other] |
-| Input dimensions | [2D / 3D] |
-| Loss function | [Specify loss function] |
-| Optimization algorithm | [Specify optimizer] |
+| Primary architecture | 3D U-Net (MONAI `UNet`, residual units, instance normalization, 4.8 M parameters) |
+| Imaging modality | Multi-parametric MRI (FLAIR, T1w, T1gd, T2w) |
+| Target anatomy | Glioma sub-regions: whole tumour, tumour core, enhancing tumour |
+| Training framework | PyTorch 2.14 + MONAI 1.6 |
+| Input dimensions | 3D, 64 × 64 × 64 training patches (centre of augmented 80³ crops), four input channels; whole-volume sliding-window inference |
+| Loss function | Dice + binary cross-entropy (multi-label, sigmoid) |
+| Optimization algorithm | Adam, lr 5e-4, weight decay 1e-5, cosine annealing |
 
 ### 3. Training
 
-Model training experiments examine how architecture selection and hyperparameter configuration influence performance.
+Model training experiments examine how the training configuration influences performance.
 
-Experimental variables may include:
+Experimental variables in this study:
 
-- Learning rate
-- Batch size
-- Number of epochs
-- Data augmentation
-- Network depth
-- Loss function
-- Input resolution
+- Data augmentation (none, spatial, spatial + image degradation)
 
-Training and validation performance should be recorded for each experiment.
+Held fixed across all configurations:
+
+- Architecture, loss, optimizer, learning-rate schedule
+- Number of epochs, batch size, patches per case
+- Training, validation, and test cases
+- Random seed
+
+Training and validation performance are recorded for every epoch in `history.json` files produced by the training script.
 
 ### 4. Quantitative Evaluation
 
-Model predictions can be evaluated using standard medical imaging metrics.
+Model predictions are evaluated with standard medical imaging metrics.
 
 | Metric | Description |
 |---|---|
-| Dice Similarity Coefficient | Measures overlap between predicted and reference segmentation masks |
-| Intersection over Union | Measures spatial agreement between segmentation regions |
-| Hausdorff Distance | Evaluates differences between anatomical boundaries |
-| Inference Time | Measures model processing time |
+| Dice Similarity Coefficient | Overlap between predicted and reference segmentation masks (BraTS convention: empty-vs-empty = 1) |
+| 95th-percentile Hausdorff Distance | Discrepancy between predicted and reference region boundaries, in voxels |
+| Inference Time | Wall-clock time of whole-volume sliding-window inference per case |
 
-Evaluation should use held-out data that were not used for model training or hyperparameter selection.
+Evaluation uses 30 held-out cases that were not used for model training or checkpoint selection.
 
 ### 5. Visualization and Error Analysis
 
 The visualization workflow examines predicted structures and model behavior.
 
-Outputs may include:
+Outputs produced by `experiments/brats_robustness/report.py`:
 
-- Original medical images
-- Ground-truth anatomical labels
-- Model-generated segmentation masks
-- Segmentation overlays
 - Training and validation curves
-- Anatomical boundary comparisons
-- Failure-case visualizations
+- Dice as a function of noise level and voxel size
+- Segmentation overlays for one held-out case under clean, noisy, and low-resolution input
+- Markdown tables with paired bootstrap confidence intervals
 
 ---
-
 
 ## Experimental Results
 
 ### Brain MRI Segmentation Study
 
-This project investigates deep learning methods for segmenting brain tumor regions from three-dimensional magnetic resonance imaging (MRI) scans.
+This study measures how training-time data augmentation affects a 3D U-Net that segments glioma sub-regions from multi-parametric MRI, and whether it changes the model's sensitivity to degraded image quality.
 
-The proposed evaluation uses the Medical Segmentation Decathlon Task01 BrainTumour dataset, derived from BraTS data. Each imaging study includes four MRI sequences:
+The experiment uses the Medical Segmentation Decathlon Task01 BrainTumour dataset, derived from BraTS 2016/17. Each case has four co-registered MRI sequences at 1 mm isotropic resolution:
 
-- T1-weighted MRI
-- Contrast-enhanced T1-weighted MRI (T1gd)
-- T2-weighted MRI
-- FLAIR MRI
+- FLAIR
+- T1-weighted (T1w)
+- Contrast-enhanced T1-weighted (T1gd)
+- T2-weighted (T2w)
 
-The research focuses on three segmentation targets:
+The three segmentation targets are the standard nested BraTS regions:
 
-1. Whole tumor (WT)
-2. Tumor core (TC)
-3. Enhancing tumor (ET)
+1. Whole tumour (WT): edema + non-enhancing core + enhancing tumour
+2. Tumour core (TC): non-enhancing core + enhancing tumour
+3. Enhancing tumour (ET)
+
+Label definitions follow the dataset's own `dataset.json` (1 = edema, 2 = non-enhancing tumour, 3 = enhancing tumour). This was verified empirically: voxels labelled 3 have a mean normalized T1gd intensity of +2.21 versus −0.03 for label 2, as expected for contrast enhancement.
+
+All code, per-case results, and figures are in [`experiments/brats_robustness/`](experiments/brats_robustness/). The complete protocol is documented in that directory's README.
 
 ### Experimental Design
 
-Three model configurations are proposed to investigate how data augmentation influences segmentation accuracy and reliability.
+Of the 484 labelled cases, 145 were drawn once with a fixed seed: 100 for training, 15 for validation (checkpoint selection), and 30 held out for testing. Three models were trained with an identical budget (40 epochs × 400 patches of 64³ voxels, batch 2, Adam, cosine schedule, batch Dice + BCE loss) and an identical seed. Only the augmentation differs, forming an additive ladder:
 
-| Experiment | Dataset | Architecture | Target Mean Dice |
-|---|---|---|---|
-| Baseline | MSD Task01 BrainTumour | 3D U-Net | 0.847 |
-| Spatial Augmentation | MSD Task01 BrainTumour | 3D U-Net + Spatial Augmentation | 0.868 |
-| Degradation-Aware Training | MSD Task01 BrainTumour | 3D U-Net + Noise/Resolution Augmentation | 0.861 |
+| Experiment | Training augmentation | Best validation mean Dice |
+|---|---|---|
+| Baseline | foreground-biased random crops only | 0.779 |
+| Spatial Augmentation | + random affine (±15° rotation, ±10% scaling) and random flips | 0.777 |
+| Degradation-Aware Training | + Gaussian noise (σ up to 0.3) and simulated low resolution (down to 2 mm) | 0.775 |
+
+The whole study ran on one Apple M3 laptop (16 GB, PyTorch MPS backend): about 47 minutes of training per model and 3 s of sliding-window inference per case.
+
+![Training curves](experiments/brats_robustness/results/figures/training_curves.png)
 
 ### Robustness Evaluation
 
-The planned robustness evaluation examines whether model predictions remain consistent when MRI quality changes.
+Every model was evaluated on the same 30 held-out cases under clean input and under two synthetic degradations applied to the normalized test volumes, with a fixed noise pattern per case so that the comparison is paired:
 
-Two imaging degradations are considered:
+- Gaussian noise with σ = 0.1, 0.2, 0.4, and 0.8 on the normalized intensity scale (σ = 0.2 means 20% of the within-brain intensity standard deviation).
+- Resolution reduction to ≈2 mm, ≈3 mm, and ≈4 mm voxels (area downsampling followed by trilinear upsampling back to the 1 mm grid), scored against the original 1 mm reference labels.
 
-- Gaussian noise, simulating variations in image quality.
-- Resolution reduction, evaluating sensitivity to lost anatomical detail.
+Levels above σ = 0.3 or coarser than 2 mm lie outside the degradation-aware model's training range.
 
-| Model | Clean MRI Dice | Noisy MRI Dice | Reduced-Resolution Dice |
+**Headline: mean Dice over TC, WT, and ET (30 test cases)**
+
+| Model | Clean MRI | Noisy MRI (σ = 0.2) | Reduced resolution (2 mm) | Δ noise | Δ 2 mm |
+|---|---|---|---|---|---|
+| Baseline | 0.752 | 0.751 | 0.738 | −0.001 | −0.013 |
+| Spatial Augmentation | 0.745 | 0.744 | 0.732 | −0.001 | −0.012 |
+| Degradation-Aware Training | 0.739 | 0.738 | 0.732 | −0.000 | −0.007 |
+
+**Full degradation sweep: mean Dice (mean ± std across cases)**
+
+| Condition | Baseline | Spatial Augmentation | Degradation-Aware |
 |---|---|---|---|
-| Baseline | 0.847 | 0.731 | 0.765 |
-| Spatial Augmentation | 0.868 | 0.803 | 0.819 |
-| Degradation-Aware Training | 0.861 | 0.834 | 0.839 |
+| Clean (1 mm) | 0.752 ± 0.164 | 0.745 ± 0.170 | 0.739 ± 0.180 |
+| Noise σ = 0.1 | 0.751 ± 0.164 | 0.744 ± 0.170 | 0.739 ± 0.180 |
+| Noise σ = 0.2 | 0.751 ± 0.165 | 0.744 ± 0.170 | 0.738 ± 0.180 |
+| Noise σ = 0.4 (beyond training range) | 0.751 ± 0.165 | 0.744 ± 0.171 | 0.739 ± 0.179 |
+| Noise σ = 0.8 (beyond training range) | 0.751 ± 0.163 | 0.744 ± 0.169 | 0.739 ± 0.176 |
+| Resolution ≈2 mm | 0.738 ± 0.171 | 0.732 ± 0.177 | 0.732 ± 0.183 |
+| Resolution ≈3 mm (beyond training range) | 0.729 ± 0.171 | 0.725 ± 0.177 | 0.727 ± 0.180 |
+| Resolution ≈4 mm (beyond training range) | 0.716 ± 0.174 | 0.713 ± 0.179 | 0.719 ± 0.180 |
+
+![Dice under noise and reduced resolution](experiments/brats_robustness/results/figures/robustness.png)
+
+**Clean-image accuracy per region**
+
+| Model | Dice WT | Dice TC | Dice ET | HD95 WT (vox) | HD95 TC (vox) | HD95 ET (vox) |
+|---|---|---|---|---|---|---|
+| Baseline | 0.797 ± 0.185 | 0.733 ± 0.186 | 0.724 ± 0.226 | 37.0 | 28.2 | 24.7 |
+| Spatial Augmentation | 0.784 ± 0.200 | 0.732 ± 0.188 | 0.717 ± 0.227 | 38.7 | 26.6 | 21.4 |
+| Degradation-Aware Training | 0.786 ± 0.204 | 0.725 ± 0.195 | 0.706 ± 0.237 | 40.9 | 29.0 | 26.3 |
+
+HD95 is the 95th-percentile Hausdorff distance in voxels, averaged over the cases where the reference and all three predictions are non-empty (30 cases for WT and TC, 29 for ET because one test case has no enhancing tumour). No model missed a structure entirely.
+
+**Paired differences in mean Dice (95% bootstrap CI over cases)**
+
+| Condition | Spatial − Baseline | Degradation-Aware − Spatial | Degradation-Aware − Baseline |
+|---|---|---|---|
+| Clean | −0.007 [−0.015, +0.001] | −0.006 [−0.015, +0.002] | −0.013 [−0.027, +0.000] |
+| Noise σ = 0.2 | −0.007 [−0.015, +0.001] | −0.006 [−0.015, +0.002] | −0.012 [−0.027, +0.000] |
+| Noise σ = 0.8 | −0.007 [−0.017, +0.002] | −0.005 [−0.012, +0.002] | −0.012 [−0.025, −0.001] |
+| Resolution ≈2 mm | −0.006 [−0.013, +0.001] | −0.001 [−0.009, +0.008] | −0.006 [−0.020, +0.006] |
+| Resolution ≈3 mm | −0.004 [−0.010, +0.002] | +0.002 [−0.007, +0.011] | −0.001 [−0.014, +0.010] |
+| Resolution ≈4 mm | −0.002 [−0.009, +0.004] | +0.006 [−0.003, +0.015] | +0.004 [−0.010, +0.016] |
+
+The full table for every condition is in [`results/summary_tables.md`](experiments/brats_robustness/results/summary_tables.md); per-case values are in [`results/per_case_results.csv`](experiments/brats_robustness/results/per_case_results.csv).
+
+![Qualitative comparison on a held-out case](experiments/brats_robustness/results/figures/qualitative.png)
 
 ### Analysis
-The comparison illustrates a potential tradeoff
-between clean-image segmentation accuracy and robustness.
 
-Spatial augmentation is projected to produce the highest
-clean-image Dice score (0.868), while degradation-aware
-training is projected to preserve more segmentation accuracy
-under imaging degradation.
+**1. Clean-image accuracy.** The baseline reached the highest clean test Dice (0.752), with spatial augmentation 0.007 lower and degradation-aware training 0.013 lower. None of these differences is distinguishable from case-to-case variation with 30 test cases, and the validation curves show why: the augmented models lag in the middle of the schedule and only catch up in the final cosine-annealed epochs. With training loss still falling and validation Dice still rising at epoch 40, the models are not yet overfitting, so augmentation has had no overfitting to prevent. The projected ordering in the original proposal (augmentation improving clean Dice) did not materialise within this budget.
 
-Under Gaussian noise, the baseline loses
-0.116 Dice points, compared with 0.027 for the
-degradation-aware configuration.
+**2. Additive Gaussian noise.** Additive independent Gaussian noise had no measurable effect on any model. Mean Dice changed by at most 0.001 even at σ = 0.8, which is 80% of the within-brain intensity standard deviation and far outside the degradation-aware training range. The predictions do change (on the illustrated case about 7,000 of 161,000 whole-tumour voxels flip at σ = 0.8), but the flips are confined to the boundary and cancel out: per-case changes range from −0.02 to +0.02 Dice. Two factors explain this. Tumour contrast is large relative to the noise (on the illustrated case FLAIR inside the whole tumour averages +2.0 standard deviations against −0.3 in healthy brain), and the 3 × 3 × 3 convolutions and repeated downsampling of a U-Net average independent voxel noise away before it reaches a decision. The proposal's projected drop of 0.116 Dice under noise did not occur, so noise augmentation bought nothing here. The one paired interval that excludes zero (degradation-aware minus baseline at σ = 0.8) simply carries the clean-image gap through unchanged.
 
-These values define experimental outcomes.
-Actual conclusions require training, evaluation, and
-recording results on held-out MRI scans.
+**3. Reduced resolution.** Resolution loss is the degradation that matters. The baseline loses 0.013 Dice at 2 mm and 0.023 at 3 mm; the degradation-aware model loses 0.007 and 0.012. At 4 mm the gap widens further: the baseline loses 0.036 and the spatial model 0.032, while the degradation-aware model loses 0.020 and becomes the most accurate of the three (0.719 versus 0.716) despite starting 0.013 lower. The pattern is the one hypothesised in the proposal, a trade of clean accuracy for stability, but it is small: at 3 mm all three models sit within 0.004 Dice of one another, and every paired confidence interval at the reduced-resolution levels includes zero.
 
-#### 1. Segmentation Accuracy
+**4. Anatomical boundary accuracy.** HD95 values of 20–40 voxels for every model are large relative to the Dice scores. The overlay figure shows the cause: predictions are compact and accurate around the tumour, but small false-positive islands (notably tumour-core specks inside edema and stray fragments elsewhere) sit far from the reference boundary and dominate the 95th-percentile distance. Connected-component post-processing would likely improve HD95 far more than any of the augmentation choices tested here.
 
-The evaluation will compare predicted tumor segmentation masks against annotated reference masks using the Dice similarity coefficient.
-
-Performance will be examined separately for whole tumor, tumor core, and enhancing tumor regions.
-
-#### 2. Effects of Data Augmentation
-
-Spatial augmentation will be evaluated for its ability to improve model generalization across differences in tumor size, position, and anatomical structure.
-
-#### 3. MRI Image Quality
-
-Degradation-aware training will investigate whether exposing models to simulated noise and reduced resolution during training improves their performance on degraded images.
-
-#### 4. Anatomical Boundary Accuracy
-
-Dice similarity measures spatial overlap but does not fully describe boundary accuracy.
-
-The 95th percentile Hausdorff distance may provide additional information about discrepancies between predicted and reference tumor boundaries.
-
-#### 5. Limitations
-
-Synthetic image degradation does not fully represent differences among clinical MRI scanners, acquisition protocols, or patient populations.
-
-Results from a single benchmark dataset would not establish clinical reliability.
-
-Independent testing and repeated training runs would be necessary to assess the consistency of observed performance differences.
-
-### Research Significance
-
-Brain tumor segmentation provides an opportunity to study how computational methods extract anatomical information from complex medical imaging data.
-
-This project focuses on the relationship between image preprocessing, segmentation performance, and model reliability under changing imaging conditions.
-
-The ultimate research objective is to better understand the technical limitations of automated medical image analysis.
-
-
-**1. Baseline Performance**
-
-The baseline model achieves a Dice similarity coefficient of 0.931 on clean CT images, indicating strong anatomical overlap between predicted segmentations and reference masks. However, performance decreases to 0.814 under Gaussian noise, suggesting sensitivity to imaging characteristics absent from the training distribution.
-
-**2. Effects of Standard Augmentation**
-
-Introducing conventional spatial augmentation increases clean-image Dice similarity from 0.931 to 0.938. Performance under noise also improves to 0.862, suggesting that standard augmentation can offer some protection against imaging variability even without explicitly simulating noise during training.
-
-**3. Degradation-Aware Training**
-
-The degradation-aware configuration produces a slightly lower clean-image Dice score of 0.929 but maintains substantially higher accuracy under noisy conditions, achieving 0.907.
-
-Compared with the baseline, the Dice reduction under noise decreases from 0.117 to 0.022, representing an approximately 81.2% reduction in performance degradation.
-
-This illustrates a possible tradeoff: optimizing exclusively for clean-image accuracy may produce a model that performs less consistently when imaging conditions change.
-
-**4. Anatomical Boundary Reliability**
-
-The resolution experiment shows that degradation-aware training maintains a Dice score of 0.903, compared with 0.846 for the baseline.
-
-One possible explanation is that exposure to lower-resolution inputs encourages the model to rely more on broader anatomical structures rather than fine image details that may disappear under degradation.
-
-Further experiments using the 95th percentile Hausdorff distance would help determine whether improved overlap also corresponds to more accurate anatomical boundaries.
-
-**5. Limitations and Interpretation**
-
-Although the comparison suggests that degradation-aware augmentation could improve segmentation robustness, several limitations require investigation.
-
-First, synthetic noise and resolution reduction do not fully reproduce differences between real clinical imaging systems. Second, results from a single anatomical segmentation task cannot establish generalization across other organs or imaging modalities.
-
-Finally, repeated training runs, confidence intervals, and independent test datasets would be necessary to establish whether the observed performance differences are statistically reliable.
+**5. Limitations.** Every number comes from a single training seed; run-to-run variation of a 40-epoch, 100-case training is probably comparable to the differences observed, so none of the orderings above should be read as established. The models are also under-trained relative to full BraTS pipelines (WT Dice 0.80 versus about 0.90 for mature systems), the 64³ patches and 40-epoch budget were dictated by laptop hardware, and the degradations are synthetic. The paired confidence intervals are not corrected for multiple comparisons, and training on the MPS backend is not bitwise reproducible.
 
 ### Research Implications
 
-The proposed experiment illustrates why evaluating medical imaging models exclusively on clean validation data may provide an incomplete assessment of reliability.
+The proposal assumed that a model trained on clean images would be fragile under noise and that augmentation would trade clean accuracy for robustness. The measured outcome is more nuanced: the architecture itself already provides noise robustness at realistic levels, the resolution trade-off exists but is small, and the dominant error mode (distant false positives) is not addressed by augmentation at all. Evaluating only on clean validation data would have missed none of the Dice ordering but would also have hidden how little the degradations matter relative to seed variance and post-processing.
 
-An important direction for further research is determining whether segmentation models can estimate their own uncertainty under unfamiliar imaging conditions.
-
-Combining degradation-aware training with uncertainty estimation could provide a more informative evaluation framework for automated medical image analysis.
+Natural next steps are to train 3 seeds per configuration so the comparison can be bootstrapped over training runs as well as cases, to add connected-component filtering and re-measure HD95, and to extend the sweep to structured degradations (Rician noise, motion ghosting, bias fields) that are harder for convolutions to average away.
 
 ---
 
 ## Technologies
 
-The following tools are relevant to the project. Retain only those actually used in the implementation.
-
 | Technology | Application |
 |---|---|
-| Python | Development and experimentation |
-| PyTorch | Deep learning |
-| MONAI | Medical imaging workflows |
-| NumPy | Numerical computation |
-| NiBabel | Medical image file processing |
-| Matplotlib | Visualization |
-| scikit-learn | Evaluation utilities |
-| Jupyter Notebook | Experimental development |
+| Python 3.12 | Development and experimentation |
+| PyTorch 2.14 (MPS backend) | Deep learning |
+| MONAI 1.6 | 3D U-Net, transforms, sliding-window inference, Hausdorff distance |
+| NumPy / SciPy | Numerical computation and bootstrap statistics |
+| NiBabel | NIfTI loading and reorientation |
+| pandas | Result tables |
+| Matplotlib | Figures |
+| pytest | Unit tests for metrics, degradations, label mapping, and transforms |
 
 ---
 
 ## Repository Structure
 
-The following is a suggested organization. Update it to match the actual repository.
-
 ```text
-MedImageLab/
+brain-mri/
 |
 ├── README.md
 ├── requirements.txt
 |
-├── data/
-|   └── README.md
-|
-├── preprocessing/
-|   └── ...
-|
-├── models/
-|   └── ...
-|
-├── training/
-|   └── ...
-|
-├── evaluation/
-|   └── ...
-|
-├── visualization/
-|   └── ...
-|
 ├── experiments/
-|   └── ...
+|   └── brats_robustness/        # the brain MRI study (code, tests, results)
+|       ├── README.md            # full protocol and reproduction steps
+|       ├── prepare_data.py      # extract, split, preprocess
+|       ├── transforms.py        # the three augmentation pipelines
+|       ├── train.py             # train one configuration
+|       ├── evaluate.py          # paired robustness evaluation
+|       ├── report.py            # tables, bootstrap CIs, figures
+|       ├── degradations.py / metrics.py / model.py / common.py
+|       ├── tests/
+|       ├── results/             # per-case CSV, summary JSON, tables, figures
+|       └── run_all.sh
 |
-└── results/
-    └── ...
+├── data/                        # git-ignored: raw tarball, preprocessed .npy, checkpoints
+|
+└── 2d_*/ 3d_*/ acceleration/ active_learning/ auto3dseg/ automl/
+    # reference notebooks and scripts from the MONAI tutorials collection
 ```
 
 ---
@@ -346,46 +303,43 @@ MedImageLab/
 Clone the repository:
 
 ```bash
-git clone https://github.com/USERNAME/REPOSITORY.git
-cd REPOSITORY
+git clone https://github.com/27jackson08/brain-mri.git
+cd brain-mri
 ```
 
-Create a virtual environment:
+Create a virtual environment and install dependencies:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
-```
-
-On Windows:
-
-```bash
-.venv\Scripts\activate
-```
-
-Install dependencies:
-
-```bash
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**Note:** Replace the repository URL and ensure `requirements.txt` contains the dependencies tested with this project.
+Download the dataset and run the study:
+
+```bash
+mkdir -p data/raw
+curl -o data/raw/Task01_BrainTumour.tar \
+  https://msd-for-monai.s3-us-west-2.amazonaws.com/Task01_BrainTumour.tar
+
+cd experiments/brats_robustness
+python -m pytest tests -q
+bash run_all.sh 40 0
+```
 
 ## Datasets
 
-Document every dataset used for training and evaluation.
+| Item | Detail |
+|---|---|
+| Name and source | Medical Segmentation Decathlon, Task01 BrainTumour ([MSD](http://medicaldecathlon.com/)), derived from BraTS 2016/17 |
+| Imaging modality | Multi-parametric MRI: FLAIR, T1w, T1gd, T2w; 240 × 240 × 155 voxels at 1 mm isotropic |
+| Number of samples | 484 labelled training cases (266 unlabelled test cases are not used) |
+| Target structures | Edema, non-enhancing tumour core, enhancing tumour, evaluated as WT / TC / ET |
+| Annotations | Expert voxel-wise labels distributed with the dataset |
+| Splits used here | 100 train / 15 validation / 30 test, drawn with seed 0; case IDs in `data/preprocessed/split.json` after preprocessing |
+| License | CC-BY-SA 4.0 |
 
-For each dataset, provide:
-
-- Dataset name and source
-- Imaging modality
-- Number of samples
-- Target anatomical structures
-- Annotation availability
-- Training and evaluation splits
-- License or usage restrictions
-
-Do not upload restricted medical data or identifiable patient information.
+No patient-identifiable information is involved; the data are de-identified research scans and are not committed to this repository.
 
 ---
 
@@ -393,15 +347,13 @@ Do not upload restricted medical data or identifiable patient information.
 
 Medical image analysis systems are sensitive to image quality, anatomical variability, training data composition, and differences between imaging systems.
 
-Performance on a research dataset does not demonstrate clinical reliability.
+Performance on a research dataset does not demonstrate clinical reliability. Specific to this study:
 
-Additional limitations may include:
-
-- Limited annotated training data
-- Differences between imaging protocols
-- Model sensitivity to unfamiliar data
-- Segmentation boundary errors
-- Computational requirements for 3D imaging
+- A single training seed per configuration
+- 100 training cases and a 40-epoch budget sized for a laptop GPU
+- Synthetic rather than scanner-derived degradations
+- Small false-positive islands that inflate boundary distances
+- Evaluation on one benchmark dataset and one anatomy
 
 This project is intended for biomedical engineering research and educational experimentation. It is not validated for clinical decision-making.
 
@@ -414,6 +366,5 @@ This project draws on open-source research in deep learning and computational me
 - [MONAI Framework](https://github.com/Project-MONAI/MONAI)
 - [MONAI Tutorials](https://github.com/Project-MONAI/tutorials)
 - [PyTorch](https://github.com/pytorch/pytorch)
-
-
-
+- Antonelli, M. et al. *The Medical Segmentation Decathlon.* Nature Communications 13, 4128 (2022).
+- Menze, B. H. et al. *The Multimodal Brain Tumor Image Segmentation Benchmark (BRATS).* IEEE TMI 34(10), 1993–2024 (2015).

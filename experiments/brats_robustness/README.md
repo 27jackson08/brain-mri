@@ -18,9 +18,9 @@ fixed in code so that the numbers can be reproduced or scaled up.
 | Targets | Nested BraTS regions: whole tumour (WT), tumour core (TC), enhancing tumour (ET) |
 | Preprocessing | RAS reorientation, crop to brain bounding box, per-modality z-score over non-zero voxels |
 | Model | MONAI 3D U-Net, channels (16, 32, 64, 128, 256), strides 2, two residual units per level, instance norm, 4.8 M parameters |
-| Patches | 64³ training patches, 2 per case per epoch: an 80³ foreground-biased crop (1:1 tumour-centred vs random) is augmented, then centre-cropped to 64³ |
-| Loss / optimiser | Dice + BCE (sigmoid, multi-label), Adam lr 5e-4, weight decay 1e-5, cosine schedule |
-| Budget | 40 epochs × 200 patches, batch 2, identical for every configuration; validation every 4 epochs, best-validation checkpoint kept |
+| Patches | 64³ training patches, 4 per case per epoch: an 80³ foreground-biased crop (1:1 tumour-centred vs random) is augmented, then centre-cropped to 64³ |
+| Loss / optimiser | batch Dice + BCE (sigmoid, multi-label), Adam lr 1e-3, weight decay 1e-5, cosine schedule |
+| Budget | 40 epochs × 400 patches, batch 2, identical for every configuration; validation every 4 epochs, best-validation checkpoint kept |
 | Inference | Sliding window 64³, 50% overlap, Gaussian blending, sigmoid > 0.5 |
 
 ### Configurations
@@ -42,8 +42,14 @@ design). Reference labels stay at 1 mm.
 
 | Condition | Levels evaluated | Inside the training range of the degradation-aware model? |
 |---|---|---|
-| Gaussian noise | σ = 0.1, 0.2, 0.4 | 0.1 and 0.2 yes; 0.4 no |
-| Reduced resolution | factor 0.5 (≈2 mm voxels), 0.333 (≈3 mm voxels) | 0.5 at the edge; 0.333 no |
+| Gaussian noise | σ = 0.1, 0.2, 0.4, 0.8 | 0.1 and 0.2 yes; 0.4 and 0.8 no |
+| Reduced resolution | factor 0.5 (≈2 mm voxels), 0.333 (≈3 mm), 0.25 (≈4 mm) | 0.5 at the edge; 0.333 and 0.25 no |
+
+The σ = 0.8 and 4 mm levels were added after the first evaluation pass showed
+no measurable noise effect up to σ = 0.4; they were run with
+`evaluate.py --conditions noise:0.8 lowres:0.25` on the same checkpoints and
+merged into the same per-case table. They are now part of the default
+condition list.
 
 Metrics per case and region: Dice (BraTS convention, empty-vs-empty = 1) and
 95th-percentile Hausdorff distance in voxels (undefined when either mask is
