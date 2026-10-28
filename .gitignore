@@ -1,0 +1,16 @@
+# data, checkpoints, and environments are never committed
+data/
+.venv/
+*.pt
+*.pth
+*.npy
+*.npz
+*.nii
+*.nii.gz
+*.tar
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.DS_Store
