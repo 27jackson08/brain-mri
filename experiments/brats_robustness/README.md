@@ -18,10 +18,10 @@ fixed in code so that the numbers can be reproduced or scaled up.
 | Targets | Nested BraTS regions: whole tumour (WT), tumour core (TC), enhancing tumour (ET) |
 | Preprocessing | RAS reorientation, crop to brain bounding box, per-modality z-score over non-zero voxels |
 | Model | MONAI 3D U-Net, channels (16, 32, 64, 128, 256), strides 2, two residual units per level, instance norm, 4.8 M parameters |
-| Patches | 96³ foreground-biased random crops (1:1 tumour-centred vs random), 2 per case per epoch |
+| Patches | 64³ training patches, 2 per case per epoch: an 80³ foreground-biased crop (1:1 tumour-centred vs random) is augmented, then centre-cropped to 64³ |
 | Loss / optimiser | Dice + BCE (sigmoid, multi-label), Adam lr 5e-4, weight decay 1e-5, cosine schedule |
-| Budget | 40 epochs, batch 4, identical for every configuration; validation every 4 epochs, best-validation checkpoint kept |
-| Inference | Sliding window 96³, 50% overlap, Gaussian blending, sigmoid > 0.5 |
+| Budget | 40 epochs × 200 patches, batch 2, identical for every configuration; validation every 4 epochs, best-validation checkpoint kept |
+| Inference | Sliding window 64³, 50% overlap, Gaussian blending, sigmoid > 0.5 |
 
 ### Configurations
 

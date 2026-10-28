@@ -24,7 +24,10 @@ SPLIT_FILE = PREPROCESSED_DIR / "split.json"
 REGION_NAMES = ("TC", "WT", "ET")
 MODALITY_NAMES = ("FLAIR", "T1w", "T1gd", "T2w")
 
-PATCH_SIZE = (96, 96, 96)
+# Training patch and the slightly larger crop that is spatially augmented before
+# being centre-cropped to PATCH_SIZE, so rotations do not leave zero borders.
+PATCH_SIZE = (64, 64, 64)
+CROP_SIZE = (80, 80, 80)
 
 
 def seed_everything(seed: int) -> None:

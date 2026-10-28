@@ -132,9 +132,12 @@ def report_label_sanity(metas: list[dict]) -> dict:
         "t1gd_mean_enhancing": float(np.mean(enh)) if enh else None,
         "t1gd_mean_non_enhancing": float(np.mean(non)) if non else None,
     }
+    def show(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:.3f}"
+
     print(
         "label sanity check: mean normalized T1gd intensity "
-        f"enhancing={summary['t1gd_mean_enhancing']:.3f} vs non-enhancing={summary['t1gd_mean_non_enhancing']:.3f} "
+        f"enhancing={show(summary['t1gd_mean_enhancing'])} vs non-enhancing={show(summary['t1gd_mean_non_enhancing'])} "
         f"(enhancing tumour should be brighter); cases without ET: {summary['n_cases_without_ET']}/{len(metas)}",
         flush=True,
     )

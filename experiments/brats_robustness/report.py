@@ -29,8 +29,8 @@ REGION_COLORS = {"edema": "#6250d6", "core": "#eda100", "enhancing": "#e34948"}
 HEADLINE_CONDITIONS = (("clean", "Clean"), ("noise_0.2", "Noise σ=0.2"), ("lowres_0.5", "2 mm resolution"))
 CONDITION_LABELS = {
     "clean": "Clean (1 mm)", "noise_0.1": "Gaussian noise σ=0.1", "noise_0.2": "Gaussian noise σ=0.2",
-    "noise_0.4": "Gaussian noise σ=0.4", "lowres_0.5": "Reduced resolution ×0.5 (≈2 mm)",
-    "lowres_0.333": "Reduced resolution ×0.33 (≈3 mm)",
+    "noise_0.4": "Gaussian noise σ=0.4 (beyond training range)", "lowres_0.5": "Reduced resolution ×0.5 (≈2 mm)",
+    "lowres_0.333": "Reduced resolution ×0.33 (≈3 mm, beyond training range)",
 }
 BOOTSTRAP_SAMPLES = 10_000
 TEXT_COLOR, MUTED, GRID = "#0b0b0b", "#52514e", "#e6e5e1"
@@ -72,8 +72,13 @@ def paired_bootstrap(a: np.ndarray, b: np.ndarray, rng: np.random.Generator) -> 
 
 
 def case_matrix(df: pd.DataFrame, condition: str, metric: str) -> pd.DataFrame:
+    """Cases x configs table for one condition; requires exactly one row per (case, config)."""
     sub = df[df.condition == condition]
-    return sub.pivot(index="case_id", columns="config", values=metric).sort_index()
+    matrix = sub.pivot(index="case_id", columns="config", values=metric).sort_index()
+    missing = [c for c in CONFIG_ORDER if c not in matrix.columns]
+    if missing or matrix.isna().any().any():
+        raise ValueError(f"incomplete results for condition {condition}: missing configs {missing} or cases")
+    return matrix
 
 
 def fmt(mean: float, std: float | None = None) -> str:
@@ -91,17 +96,29 @@ def headline_table(df: pd.DataFrame) -> list[str]:
     return lines
 
 
-def region_table(df: pd.DataFrame) -> list[str]:
-    clean = df[df.condition == "clean"]
-    lines = ["| Model | Dice WT | Dice TC | Dice ET | HD95 WT (vox) | HD95 TC (vox) | HD95 ET (vox) |",
-             "|---|---|---|---|---|---|---|"]
+def region_table(df: pd.DataFrame, condition: str = "clean") -> list[str]:
+    """Per-region Dice and HD95; HD95 is averaged over the cases valid for every model."""
+    sub_all = df[df.condition == condition]
+    valid_cases = {r: set(sub_all.case_id) for r in REGION_NAMES}
+    for r in REGION_NAMES:
+        for config in CONFIG_ORDER:
+            ok = sub_all[(sub_all.config == config) & sub_all[f"hd95_{r}"].notna()].case_id
+            valid_cases[r] &= set(ok)
+    lines = ["| Model | Dice WT | Dice TC | Dice ET | HD95 WT (vox) | HD95 TC (vox) | HD95 ET (vox) | Missed structures |",
+             "|---|---|---|---|---|---|---|---|"]
     for config in CONFIG_ORDER:
-        sub = clean[clean.config == config]
+        sub = sub_all[sub_all.config == config]
         cells = [fmt(sub[f"dice_{r}"].mean(), sub[f"dice_{r}"].std(ddof=0)) for r in ("WT", "TC", "ET")]
         for r in ("WT", "TC", "ET"):
-            vals = sub[f"hd95_{r}"].dropna()
+            vals = sub[sub.case_id.isin(valid_cases[r])][f"hd95_{r}"]
             cells.append(f"{vals.mean():.1f} (n={len(vals)})" if len(vals) else "n/a")
+        missed = sum(int(((sub[f"gt_voxels_{r}"] > 0) & (sub[f"pred_voxels_{r}"] == 0)).sum()) for r in REGION_NAMES)
+        cells.append(str(missed))
         lines.append(f"| {label_of(config)} | " + " | ".join(cells) + " |")
+    lines.append("")
+    lines.append("HD95 is averaged over the cases where the reference and all three models' predictions are "
+                 "non-empty (same n for every model). *Missed structures* counts region/case pairs where the "
+                 "reference is non-empty but the prediction is empty.")
     return lines
 
 
@@ -135,15 +152,18 @@ def paired_table(df: pd.DataFrame, rng: np.random.Generator) -> tuple[list[str],
     lines.append("")
     lines.append("Values are mean paired differences in per-case mean Dice with 95% percentile bootstrap "
                  f"confidence intervals over test cases ({BOOTSTRAP_SAMPLES:,} resamples). "
-                 "`*` marks intervals that exclude zero.")
+                 "`*` marks intervals that exclude zero. The intervals are not corrected for multiple "
+                 "comparisons, and all models come from a single training seed, so they describe "
+                 "case-to-case variability only, not training-run variability.")
     return lines, results
 
 
 def training_table(histories: dict[str, dict], df: pd.DataFrame) -> list[str]:
-    lines = ["| Model | Best val mean Dice | Best epoch | Training time | Inference time / case |", "|---|---|---|---|---|"]
+    lines = ["| Model | Best val mean Dice | Best epoch | Training time | Median inference time / case |",
+             "|---|---|---|---|---|"]
     for config in CONFIG_ORDER:
         h = histories.get(config)
-        infer = df[(df.config == config) & (df.condition == "clean")].infer_time_s.mean()
+        infer = df[(df.config == config) & (df.condition == "clean")].infer_time_s.median()
         if h is None:
             lines.append(f"| {label_of(config)} | n/a | n/a | n/a | {infer:.1f} s |")
             continue
@@ -157,8 +177,10 @@ def plot_training_curves(histories: dict[str, dict], out: Path) -> None:
     for config, h in histories.items():
         hist = pd.DataFrame(h["history"])
         axes[0].plot(hist.epoch, hist.train_loss, color=MODEL_COLORS[config], linewidth=2, label=label_of(config))
-        val = hist.dropna(subset=["val_dice_mean"]) if "val_dice_mean" in hist else hist.iloc[0:0]
-        axes[1].plot(val.epoch, val.val_dice_mean, color=MODEL_COLORS[config], linewidth=2,
+        if "val_dice_mean" not in hist.columns:
+            continue
+        val = hist.dropna(subset=["val_dice_mean"])
+        axes[1].plot(val.epoch, val["val_dice_mean"], color=MODEL_COLORS[config], linewidth=2,
                      marker=MODEL_MARKERS[config], markersize=5, label=label_of(config))
     axes[0].set(title="Training loss (Dice + BCE)", xlabel="Epoch", ylabel="Loss")
     axes[1].set(title="Validation mean Dice (TC, WT, ET)", xlabel="Epoch", ylabel="Dice")
@@ -211,9 +233,9 @@ def overlay(ax: plt.Axes, base: np.ndarray, regions: np.ndarray | None, title: s
     ax.axis("off")
 
 
-def plot_qualitative(df: pd.DataFrame, case_id: str, seed: int, out: Path) -> None:
+def plot_qualitative(df: pd.DataFrame, case_id: str, seed: int, split_name: str, out: Path) -> None:
     split = load_json(SPLIT_FILE)
-    case_index = split["test"].index(case_id)
+    case_index = split[split_name].index(case_id)
     data = LoadPreprocessedCased()({"case_id": case_id})
     image, label = data["image"], data["label"].numpy().astype(bool)
     z = int(np.argmax(label[1].sum(axis=(0, 1))))
@@ -234,7 +256,7 @@ def plot_qualitative(df: pd.DataFrame, case_id: str, seed: int, out: Path) -> No
     fig.legend(handles, ["Edema (WT only)", "Non-enhancing core (TC)", "Enhancing tumour (ET)"], loc="lower center",
                ncol=3, frameon=False, fontsize=9)
     fig.suptitle(f"Held-out case {case_id}, axial slice {z}", fontsize=10, color=TEXT_COLOR)
-    fig.tight_layout(rect=(0, 0.05, 1, 0.97))
+    fig.tight_layout(rect=(0, 0.05, 1, 0.97), h_pad=2.0)
     fig.savefig(out, facecolor="white")
     plt.close(fig)
 
@@ -245,10 +267,14 @@ def main() -> None:
     parser.add_argument("--results", default=str(RESULTS_DIR / "per_case_results.csv"))
     args = parser.parse_args()
     df = pd.read_csv(args.results)
+    df = df[df.seed == args.seed]
+    if df.empty:
+        raise SystemExit(f"no rows with seed {args.seed} in {args.results}")
     summary = load_json(Path(args.results).with_name("summary.json"))
     histories = load_histories(args.seed)
     rng = np.random.default_rng(0)
-    figures = RESULTS_DIR / "figures"
+    out_dir = Path(args.results).parent
+    figures = out_dir / "figures"
     figures.mkdir(parents=True, exist_ok=True)
 
     paired_lines, paired = paired_table(df, rng)
@@ -261,14 +287,15 @@ def main() -> None:
         "## Paired differences between models", "", *paired_lines, "",
         "## Training and inference", "", *training_table(histories, df), "",
     ]
-    (RESULTS_DIR / "summary_tables.md").write_text("\n".join(sections) + "\n")
-    save_json(paired, RESULTS_DIR / "paired_differences.json")
+    (out_dir / "summary_tables.md").write_text("\n".join(sections) + "\n")
+    save_json(paired, out_dir / "paired_differences.json")
 
     if histories:
         plot_training_curves(histories, figures / "training_curves.png")
     plot_robustness(df, figures / "robustness.png")
     if summary.get("vis_case_id"):
-        plot_qualitative(df, summary["vis_case_id"], args.seed, figures / "qualitative.png")
+        plot_qualitative(df, summary["vis_case_id"], args.seed, summary.get("split", "test"),
+                         figures / "qualitative.png")
     print("\n".join(sections))
 
 

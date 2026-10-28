@@ -15,6 +15,7 @@ import math
 import numpy as np
 import torch
 from monai.transforms import (
+    CenterSpatialCropd,
     Compose,
     EnsureTyped,
     MapTransform,
@@ -26,7 +27,7 @@ from monai.transforms import (
     SpatialPadd,
 )
 
-from common import PATCH_SIZE, case_paths
+from common import CROP_SIZE, PATCH_SIZE, case_paths
 
 KEYS = ("image", "label")
 
@@ -74,10 +75,22 @@ class LoadPreprocessedCased(MapTransform):
 
 def build_train_transform(config_name: str, samples_per_case: int) -> Compose:
     cfg = CONFIGS[config_name]
+    # Every configuration samples the same CROP_SIZE patches (foreground = whole
+    # tumour, since MONAI treats channel 0 of a multi-channel label as background
+    # and takes the union of the remaining channels) and keeps their centre
+    # PATCH_SIZE, so only the augmentation differs between configurations.
     steps: list = [
         LoadPreprocessedCased(),
         EnsureTyped(keys=KEYS, dtype=torch.float32, track_meta=False),
-        SpatialPadd(keys=KEYS, spatial_size=PATCH_SIZE),
+        SpatialPadd(keys=KEYS, spatial_size=CROP_SIZE),
+        RandCropByPosNegLabeld(
+            keys=KEYS,
+            label_key="label",
+            spatial_size=CROP_SIZE,
+            pos=1,
+            neg=1,
+            num_samples=samples_per_case,
+        ),
     ]
     if cfg["spatial"]:
         steps.append(
@@ -90,16 +103,7 @@ def build_train_transform(config_name: str, samples_per_case: int) -> Compose:
                 padding_mode="zeros",
             )
         )
-    steps.append(
-        RandCropByPosNegLabeld(
-            keys=KEYS,
-            label_key="label",
-            spatial_size=PATCH_SIZE,
-            pos=1,
-            neg=1,
-            num_samples=samples_per_case,
-        )
-    )
+    steps.append(CenterSpatialCropd(keys=KEYS, roi_size=PATCH_SIZE))
     if cfg["spatial"]:
         steps.extend(RandFlipd(keys=KEYS, prob=0.5, spatial_axis=axis) for axis in range(3))
     if cfg["degradation"]:
